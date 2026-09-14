@@ -32,14 +32,22 @@ for entry in feed.entries:
     file_name += '.md'
     file_path = os.path.join(posts_dir, file_name)
 
-    # 파일이 이미 존재하지 않으면 생성
-    if not os.path.exists(file_path):
+    # 새 글이면 생성, 이미 있는 글이면 내용이 바뀐 경우에만 갱신
+    is_new = not os.path.exists(file_path)
+
+    existing_content = None
+    if not is_new:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            existing_content = file.read()
+
+    if is_new or existing_content != entry.description:
         with open(file_path, 'w', encoding='utf-8') as file:
             file.write(entry.description)  # 글 내용을 파일에 작성
 
         # 깃허브 커밋
         repo.git.add(file_path)
-        repo.git.commit('-m', f'Add post: {entry.title}')
+        commit_message = f'Add post: {entry.title}' if is_new else f'Update post: {entry.title}'
+        repo.git.commit('-m', commit_message)
 
 # 변경 사항을 깃허브에 푸시
 repo.git.push()
