@@ -1,6 +1,10 @@
+import calendar
 import feedparser
 import git
 import os
+from datetime import datetime, timedelta, timezone
+
+KST = timezone(timedelta(hours=9))
 
 # 벨로그 RSS 피드 URL
 # example : rss_url = 'https://api.velog.io/rss/@rimgosu'
@@ -21,6 +25,17 @@ repo = git.Repo(repo_path)
 
 # RSS 피드 파싱
 feed = feedparser.parse(rss_url)
+
+
+def get_published_kst(entry):
+    """글이 실제로 벨로그에 올라간 시각(KST)을 ISO 8601 문자열로 반환.
+    Actions 실행 시각이 아니라 이 시각을 커밋 날짜로 써야, 늦게 감지되더라도
+    GitHub 잔디에 실제로 글을 쓴 날짜로 반영된다."""
+    struct_time = getattr(entry, 'published_parsed', None) or getattr(entry, 'updated_parsed', None)
+    if not struct_time:
+        return None
+    utc_dt = datetime.fromtimestamp(calendar.timegm(struct_time), tz=timezone.utc)
+    return utc_dt.astimezone(KST).isoformat()
 
 # 각 글을 파일로 저장하고 커밋
 for entry in feed.entries:
@@ -44,10 +59,15 @@ for entry in feed.entries:
         with open(file_path, 'w', encoding='utf-8') as file:
             file.write(entry.description)  # 글 내용을 파일에 작성
 
-        # 깃허브 커밋
+        # 깃허브 커밋 (실제 발행 시각을 커밋 날짜로 사용)
         repo.git.add(file_path)
         commit_message = f'Add post: {entry.title}' if is_new else f'Update post: {entry.title}'
-        repo.git.commit('-m', commit_message)
+        commit_date = get_published_kst(entry)
+        if commit_date:
+            with repo.git.custom_environment(GIT_AUTHOR_DATE=commit_date, GIT_COMMITTER_DATE=commit_date):
+                repo.git.commit('-m', commit_message)
+        else:
+            repo.git.commit('-m', commit_message)
 
 # 변경 사항을 깃허브에 푸시
 repo.git.push()
