@@ -28,9 +28,11 @@ feed = feedparser.parse(rss_url)
 
 
 def get_published_kst(entry):
-    """글이 실제로 벨로그에 올라간 시각(KST)을 ISO 8601 문자열로 반환.
-    Actions 실행 시각이 아니라 이 시각을 커밋 날짜로 써야, 늦게 감지되더라도
-    GitHub 잔디에 실제로 글을 쓴 날짜로 반영된다."""
+    """글이 처음 벨로그에 올라간 시각(KST)을 ISO 8601 문자열로 반환.
+    새 글을 늦게 감지하더라도(예: 자정 직전 발행) 실제 발행 시각 기준으로
+    GitHub 잔디에 반영되게 하기 위함. 벨로그 RSS의 pubDate는 글을 수정해도
+    갱신되지 않고 최초 발행 시각으로 고정되므로, 기존 글 수정 시에는 이 값을
+    쓰지 않고 감지된(=지금) 시각을 그대로 커밋 날짜로 사용해야 한다."""
     struct_time = getattr(entry, 'published_parsed', None) or getattr(entry, 'updated_parsed', None)
     if not struct_time:
         return None
@@ -59,10 +61,13 @@ for entry in feed.entries:
         with open(file_path, 'w', encoding='utf-8') as file:
             file.write(entry.description)  # 글 내용을 파일에 작성
 
-        # 깃허브 커밋 (실제 발행 시각을 커밋 날짜로 사용)
+        # 깃허브 커밋
         repo.git.add(file_path)
+        # 새 글이면 실제 발행 시각으로, 기존 글 수정이면 지금 감지한 시각 그대로 커밋한다.
+        # (벨로그 RSS의 pubDate는 수정해도 최초 발행 시각에서 안 바뀌기 때문에,
+        #  수정 글에 pubDate를 쓰면 오히려 엉뚱한 날짜로 잔디가 찍힌다.)
         commit_message = f'Add post: {entry.title}' if is_new else f'Update post: {entry.title}'
-        commit_date = get_published_kst(entry)
+        commit_date = get_published_kst(entry) if is_new else None
         if commit_date:
             with repo.git.custom_environment(GIT_AUTHOR_DATE=commit_date, GIT_COMMITTER_DATE=commit_date):
                 repo.git.commit('-m', commit_message)
