@@ -2,6 +2,7 @@ import calendar
 import feedparser
 import git
 import os
+import re
 from datetime import datetime, timedelta, timezone
 
 KST = timezone(timedelta(hours=9))
@@ -41,11 +42,9 @@ def get_published_kst(entry):
 
 # 각 글을 파일로 저장하고 커밋
 for entry in feed.entries:
-    # 파일 이름에서 유효하지 않은 문자 제거 또는 대체
-    file_name = entry.title
-    file_name = file_name.replace('/', '-')  # 슬래시를 대시로 대체
-    file_name = file_name.replace('\\', '-')  # 백슬래시를 대시로 대체
-    # 필요에 따라 추가 문자 대체
+    # 파일 이름에서 유효하지 않은 문자 제거 (Windows에서 클론 시 깨지지 않도록
+    # Windows 파일명 금지 문자 \ / : * ? " < > | 를 전부 제거)
+    file_name = re.sub(r'[\\/:*?"<>|]', '', entry.title).strip()
     file_name += '.md'
     file_path = os.path.join(posts_dir, file_name)
 
