@@ -5,8 +5,8 @@
 <strong>하나의 서비스가 실제로 어떻게 설계되고 운영되는지 경험해보고 싶었다.</strong></p>
 <p>특히 최근에는 금융 IT와 AICC(Artificial Intelligence Contact Center)에 관심을 가지고 관련 내용을 공부하고 있다.</p>
 <p>금융 시스템을 공부하면서는 Transaction, Idempotency, 정합성, 거래 이력과 같은 개념을 접했고,
-인턴십에서는 기존 상담 시스템과 IPCC에서 AICC로 전환되는 과정을 살펴보면서 상담 시스템이 단순히 고객의 질문에 답하는 프로그램이 아니라는 점에 관심을 가지게 되었다.</p>
-<p>고객의 요청을 받으면</p>
+å
+고객의 요청을 받으면</p>
 <blockquote>
 <p>고객 식별 → 데이터 조회 → 업무 처리 → 결과 반환 → 이력 관리</p>
 </blockquote>
