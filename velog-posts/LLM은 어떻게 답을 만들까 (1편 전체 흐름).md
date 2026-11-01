@@ -1,0 +1,183 @@
+<h1 id="llm은-어떻게-답을-만들까-1편-전체-흐름">LLM은 어떻게 답을 만들까 (1편: 전체 흐름)</h1>
+<p>ChatGPT에 질문하면 꽤 그럴듯한 답이 돌아온다. LLM(Large Language Model, 대규모 언어 모델)은 '다음 단어를 예측하는 모델'이라고 흔히 설명한다. 그런데 이 말만 들으면 휴대폰 자동완성과 뭐가 다른지 잘 와닿지 않는다.</p>
+<p>이 글은 LLM이 질문을 받아 답 한 단어를 고르기까지 어떤 순서로 일하는지 6단계로 정리한다. 설명만 하지 않고, 공개 모델 GPT-2에 실제로 문장을 넣어 본 결과도 몇 군데 붙였다. 각 단계 안을 더 깊게 들여다보는 내용은 2편에서 이어서 다룬다.</p>
+<hr />
+<h2 id="llm이-하는-일은-하나다">LLM이 하는 일은 하나다</h2>
+<p>LLM이 하는 일은 지금까지의 글을 보고 다음에 올 조각 하나를 고르는 것이다. 답이 끝날 때까지 이 일을 반복한다. 문장을 통째로 만들어 내는 장치는 따로 없다.</p>
+<p>이 글에서는 아래 문장 하나로 끝까지 따라간다.</p>
+<pre><code class="language-text">민수는 사과를 좋아하고 지수는 포도를 좋아해. 민수 생일 선물로 뭘 살까?</code></pre>
+<p>질문에는 '사과'라는 말이 없다. 사람은 앞 문장을 보고 '민수는 사과를 좋아하니까 사과'라고 바로 답한다. LLM도 같은 답을 내려면 '민수'와 '사과'를 이어야 한다. 단순히 자주 나오는 단어를 고르는 것으로는 안 된다. 이 연결을 어떻게 만드는지가 LLM 동작 원리의 핵심이다.</p>
+<hr />
+<h2 id="전체-흐름">전체 흐름</h2>
+<pre><code class="language-text">사용자 입력
+↓
+1. Tokenization       글을 조각내고 번호를 붙인다
+↓
+2. Embedding          번호를 숫자 묶음(벡터)으로 바꾼다
+↓
+3. 위치 정보          몇 번째 조각인지 더한다
+↓
+4. Attention, Block   앞 조각들에서 필요한 정보를 모은다 (여러 번 반복)
+↓
+5. 다음 조각 고르기    모든 후보에 확률을 매기고 하나를 고른다
+↓
+6. 반복과 Decoding     고른 조각을 붙이고 1번부터 다시 한다
+↓
+응답 완성</code></pre>
+<hr />
+<h2 id="1-tokenization-글을-조각내고-번호를-붙인다">1. Tokenization: 글을 조각내고 번호를 붙인다</h2>
+<p>모델은 글자를 바로 읽지 못한다. 먼저 문장을 Token이라는 조각으로 자른다. 그리고 조각마다 사전 번호를 붙인다.</p>
+<blockquote>
+<p>Token: 모델이 글을 처리하는 단위. 단어 하나일 수도 있고 글자 하나나 그보다 작은 조각일 수도 있다.</p>
+</blockquote>
+<p>실제 GPT-4o의 Tokenizer에 넣어 보면 이렇게 잘린다.</p>
+<pre><code class="language-text">민수는 사과를 좋아해.
+        ↓
+[민] [수] [는] [ 사] [과] [를] [ 좋아] [해] [.]   → 9개</code></pre>
+<p>같은 문장을 2019년 모델 GPT-2에 넣으면 26개로 잘린다. GPT-2는 영어 위주로 사전을 만들어서 한글 한 글자를 2~3조각으로 쪼개기 때문이다. 같은 내용이라도 모델과 언어에 따라 조각 수가 다르고, 조각 수만큼 계산 비용도 달라진다.</p>
+<p>조각을 나누는 기준은 사람이 정한 문법이 아니다. 학습 데이터에서 자주 붙어 나온 글자끼리 묶는다. 그래서 사전에 없는 단어나 오타도 더 작은 조각으로 나눠 받을 수 있다.</p>
+<hr />
+<h2 id="2-embedding-번호를-숫자-묶음으로-바꾼다">2. Embedding: 번호를 숫자 묶음으로 바꾼다</h2>
+<p>번호 자체에는 뜻이 없다. 22514번이 사과이고 36656번이 포도라고 해서 두 번호가 가까운 뜻은 아니다. (실제 GPT-2에서 ' apples'는 22514번, ' grapes'는 36656번이다.)</p>
+<p>그래서 모델은 번호마다 숫자 여러 개로 된 묶음을 하나씩 꺼낸다. 이 묶음을 벡터라고 하고, 번호를 벡터로 바꾸는 표를 Embedding이라고 한다. GPT-2는 Token 하나를 숫자 768개로 나타낸다.</p>
+<pre><code class="language-text">' apples' (22514번)
+        ↓  Embedding 표에서 꺼낸다
+[숫자 768개짜리 벡터]</code></pre>
+<p>이 숫자들은 처음에는 무작위 값이다. 학습을 거치며 비슷하게 쓰이는 Token끼리 벡터가 가까워진다. 예를 들어 학습이 잘된 모델이라면 사과와 포도는 가깝고, 민수와는 멀다.</p>
+<hr />
+<h2 id="3-위치-정보-몇-번째-조각인지-더한다">3. 위치 정보: 몇 번째 조각인지 더한다</h2>
+<p>뒤에 나올 Attention은 문장 전체를 한꺼번에 본다. 그래서 따로 알려 주지 않으면 순서를 모른다.</p>
+<pre><code class="language-text">민수가 지수를 좋아해
+지수가 민수를 좋아해</code></pre>
+<p>두 문장은 같은 조각으로 되어 있지만 뜻은 정반대이다. 그래서 각 Token 벡터에 '몇 번째 자리인지'를 담은 값을 더한다.</p>
+<pre><code class="language-text">모델에 들어가는 벡터 = 뜻을 담은 벡터 + 자리를 담은 벡터</code></pre>
+<p>위치를 넣는 방식은 모델마다 조금씩 다르다. 이 차이는 2편에서 다룬다.</p>
+<hr />
+<h2 id="4-attention과-transformer-block-필요한-정보를-모은다">4. Attention과 Transformer Block: 필요한 정보를 모은다</h2>
+<p>여기가 LLM이 단순한 자동완성과 갈라지는 지점이다.</p>
+<p>Attention은 '주의, 주목'이라는 뜻이다. 사람은 '뭘 살까'를 읽을 때 '민수'와 '사과'에 눈이 가고 '지수'와 '포도'는 덜 본다. Attention은 이 행동을 계산으로 옮긴 것이다. 각 Token이 앞쪽 Token 하나하나와 얼마나 관련 있는지 점수를 매긴다. 점수가 높은 Token일수록 정보를 많이 가져온다.</p>
+<p>설명을 위해 그리면 아래와 같다.</p>
+<pre><code class="language-text">&quot;... 민수 생일 선물로 뭘 살까?&quot;
+
+살까 ──→ 민수   (많이 봄)
+    ──→ 사과   (많이 봄)
+    ──→ 포도   (조금 봄)</code></pre>
+<p>실제 GPT-2에 같은 뜻의 영어 문장을 넣고 확인해 보았다. 마지막 단어 'some'이 앞쪽 Token에 준 비율이다(마지막 층 기준).</p>
+<pre><code class="language-text">입력: Minsu likes apples and Jisu likes grapes.
+      For Minsu's birthday, I will buy him some
+
+'some'이 많이 본 Token
+buy 7.6%  apples 7.5%  him 5.4%  grapes 5.4%</code></pre>
+<p>사는 행동(buy), 과일(apples, grapes), 받는 사람(him)을 많이 봤다. 다음에 무엇이 올지 정하는 데 필요한 단어들이다. (첫 Token에도 38.8%가 몰렸는데, 이건 뜻 때문이 아니라 첫 자리라서 생기는 현상이다. 2편에서 자세히 본다.)</p>
+<p>Attention으로 정보를 모은 뒤에는 FFN(Feed Forward Network)이라는 계산이 Token마다 그 정보를 한 번 더 가공한다. Attention과 FFN을 묶은 한 세트를 Transformer Block이라고 한다.</p>
+<p>이 Block을 여러 번 쌓는 이유가 있다. '선물'에서 '민수'로, 다시 '민수가 좋아하는 것'으로, 마지막으로 '사과'로 이어지는 연결은 한 번에 완성되지 않는다. 정보를 여러 번 이어 받아야 한다. GPT-2는 Block을 12번 지나고, 큰 LLM은 수십 번 지난다.</p>
+<blockquote>
+<p>Transformer: 2017년 구글 연구진이 발표한 신경망 구조. 문장 전체를 한꺼번에 계산할 수 있어 모델을 크게 키울 수 있었다. 지금 LLM 대부분의 바탕이다.</p>
+</blockquote>
+<hr />
+<h2 id="5-다음-조각-고르기-확률을-매기고-하나를-뽑는다">5. 다음 조각 고르기: 확률을 매기고 하나를 뽑는다</h2>
+<p>Block을 모두 지난 마지막 자리의 벡터로, 사전에 있는 모든 Token에 점수를 매긴다. GPT-2라면 후보가 50,257개이다. 이 점수를 Softmax라는 계산으로 합이 100%인 확률로 바꾼다.</p>
+<pre><code class="language-text">Block을 지난 마지막 자리 벡터
+↓
+Token마다 점수 (Logit)
+↓
+Softmax
+↓
+Token마다 확률
+↓
+하나 선택</code></pre>
+<p>실제 GPT-2가 'some' 다음에 매긴 확률 상위 5개는 다음과 같다.</p>
+<table>
+<thead>
+<tr>
+<th>순위</th>
+<th>1</th>
+<th>2</th>
+<th>3</th>
+<th>4</th>
+<th>5</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>다음 Token</td>
+<td>apples</td>
+<td>.</td>
+<td>apple</td>
+<td>of</td>
+<td>grapes</td>
+</tr>
+<tr>
+<td>확률</td>
+<td>16.6%</td>
+<td>4.4%</td>
+<td>3.0%</td>
+<td>2.9%</td>
+<td>2.5%</td>
+</tr>
+</tbody></table>
+<p>민수가 좋아하는 apples가 1위, 지수가 좋아하는 grapes는 5위이다. 두 과일 모두 문장에 나왔지만, 모델은 '민수'와 'apples'를 이어서 판단했다. 1위가 16.6%로 낮아 보이는 것은 'some' 뒤에 올 수 있는 말이 5만 개 후보 안에 많기 때문이다.</p>
+<p>이 확률에서 하나를 고르는 방식도 정할 수 있다.</p>
+<table>
+<thead>
+<tr>
+<th>방식</th>
+<th>고르는 법</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Greedy</td>
+<td>확률 1위만 고른다. 늘 같은 답이 나온다</td>
+</tr>
+<tr>
+<td>Top-K</td>
+<td>상위 K개만 남기고 그 안에서 확률대로 뽑는다</td>
+</tr>
+<tr>
+<td>Top-P</td>
+<td>확률을 높은 순으로 더해 P(예: 90%)가 될 때까지만 남기고 뽑는다</td>
+</tr>
+</tbody></table>
+<p>Temperature라는 값으로 확률을 한쪽으로 모을지 고르게 퍼뜨릴지도 정한다. GPT-2에서 apples의 확률은 Temperature 0.5일 때 80.3%, 1.0일 때 16.6%, 2.0일 때 0.7%였다. 낮추면 안정적인 답이, 높이면 다양한 답이 나온다. 같은 질문에 ChatGPT가 매번 조금씩 다르게 답하는 이유가 이 단계에 있다.</p>
+<hr />
+<h2 id="6-반복과-decoding-붙이고-다시-한다">6. 반복과 Decoding: 붙이고 다시 한다</h2>
+<p>고른 Token을 입력 맨 끝에 붙인다. 그리고 1번부터 같은 계산을 다시 한다.</p>
+<pre><code class="language-text">... 뭘 살까?               → 사과
+... 뭘 살까? 사과          → 를
+... 뭘 살까? 사과를        → 추천해요
+... 뭘 살까? 사과를 추천해요 → [EOS]</code></pre>
+<blockquote>
+<p>EOS(End Of Sequence): '문장이 끝났다'는 뜻의 특수 Token.</p>
+</blockquote>
+<p>모델이 EOS를 고르거나 미리 정한 최대 길이에 닿으면 멈춘다. 그동안 고른 Token 번호들을 다시 글자로 바꾸면(Decoding) 사람이 읽는 답이 된다. 이렇게 자기가 낸 출력을 다시 입력으로 쓰며 하나씩 이어 가는 방식을 자기회귀(Autoregressive)라고 한다.</p>
+<p>실제 GPT-2에 매번 1위만 고르게(Greedy) 해서 10개를 이어 쓰게 했더니 이렇게 나왔다.</p>
+<pre><code class="language-text">... I will buy him some apples.
+
+I will buy him some apples</code></pre>
+<p>첫 Token으로 apples를 고르고 마침표로 문장을 끝냈다. 그 뒤로는 앞 문장을 되풀이했다. GPT-2는 지금 LLM보다 훨씬 작은 모델이라 이런 반복이 자주 나온다.</p>
+<hr />
+<h2 id="정리">정리</h2>
+<pre><code class="language-text">문장
+→ Token으로 자르고 번호 붙이기
+→ 번호를 뜻을 담은 벡터로
+→ 자리 정보 더하기
+→ Attention과 Block으로 앞 문맥 모으기 (여러 번)
+→ 모든 후보에 확률 매기기
+→ 하나 고르기
+→ 붙이고 반복
+→ 답 완성</code></pre>
+<p>'다음 단어 예측'이라는 말은 맞다. 다만 바로 앞 단어만 보고 찍는 자동완성과는 다르다. LLM은 문장 전체에서 지금 필요한 정보를 골라 모으고, 그 과정을 여러 층에 걸쳐 반복한 뒤에 다음 Token을 고른다. 예시에서 GPT-2가 질문에 없던 apples를 1위로 꼽은 것도 이 때문이다.</p>
+<h2 id="2편-예고">2편 예고</h2>
+<p>2편에서는 이 흐름의 안쪽을 실제 모델로 더 깊게 들여다본다.</p>
+<ul>
+<li>apples는 12개 Block 중 몇 번째에서 1위로 떠오르나</li>
+<li>첫 Token에 비율이 몰리는 Attention Sink는 무엇인가</li>
+<li>2017년 논문 구조와 GPT-2, 최근 모델(Llama, Qwen)은 무엇이 다른가</li>
+<li>최근 모델 Qwen2.5에 같은 문장을 넣으면 어떻게 다른가</li>
+<li>작은 모델을 직접 학습시키면 확률이 어떻게 바뀌나</li>
+</ul>
+<h2 id="references">References</h2>
+<ol>
+<li>Vaswani et al., Attention Is All You Need, 2017. <a href="https://arxiv.org/abs/1706.03762">https://arxiv.org/abs/1706.03762</a></li>
+<li>Radford et al., Language Models are Unsupervised Multitask Learners (GPT-2), 2019</li>
+<li>Transformer Explainer (브라우저에서 GPT-2 동작을 직접 볼 수 있는 도구). <a href="https://poloclub.github.io/transformer-explainer">https://poloclub.github.io/transformer-explainer</a></li>
+</ol>
