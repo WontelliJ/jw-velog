@@ -12,22 +12,30 @@ on:
     - cron: '0 15 * * *' # 매일 UTC 15:00 = 한국 시간 자정(00:00)
   workflow_dispatch: # Actions 탭에서 수동으로 즉시 실행 가능
 
+permissions:
+  contents: write
+
+concurrency:
+  group: velog-sync
+  cancel-in-progress: false
+
 jobs:
   update_blog:
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GH_PAT || github.token }}
 
     - name: Set up Git identity
       run: |
         git config --global user.name 'jay1woo'
         git config --global user.email '50170372+WontelliJ@users.noreply.github.com'
-        git remote set-url origin https://${{ secrets.GH_PAT }}@github.com/WontelliJ/jw-velog.git
 
     - name: Set up Python
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v5
       with:
         python-version: '3.x'
 
