@@ -26,6 +26,10 @@ repo = git.Repo(repo_path)
 
 # RSS 피드 파싱
 feed = feedparser.parse(rss_url)
+if getattr(feed, 'status', 200) >= 400:
+    raise RuntimeError(f"Velog RSS request failed with HTTP {feed.status}")
+if not feed.entries:
+    raise RuntimeError("Velog RSS returned no entries. Check the feed before retrying.")
 
 
 def get_published_kst(entry):
